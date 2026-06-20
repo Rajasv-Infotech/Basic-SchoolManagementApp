@@ -1,0 +1,24 @@
+@inherits LayoutComponentBase
+
+<div class="page">
+    <aside class="sidebar">
+        <NavMenu />
+    </aside>
+
+    <main class="app-main">
+        <header class="school-header no-print">
+            <div class="school-header__identity">
+                <div class="school-header__logo">
+                    <i class="bi bi-mortarboard-fill"></i>
+                </div>
+                <div>
+                    <h1>@SchoolProfile.Name</h1>
+                </div>
+            </div>
+        </header>
+
+        <article class="content px-4">
+            @Body
+        </article>
+    </main>
+</div>

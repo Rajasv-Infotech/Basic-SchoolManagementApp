@@ -1,0 +1,685 @@
+@page "/fees-pay"
+@using SchoolManagementApp.Models
+@using SchoolManagementApp.Services
+@inject IDataService<FeeRecord> FeeService
+@inject IDataService<Student> StudentService
+@inject IDataService<FeePaymentReceipt> ReceiptService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+
+<style>
+    @@media print {
+        body * {
+            visibility: hidden;
+        }
+
+        .receipt-print-area, .receipt-print-area * {
+            visibility: visible;
+        }
+
+        .receipt-print-area {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+        }
+
+        .no-print {
+            display: none !important;
+        }
+    }
+
+    .receipt-box {
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 24px;
+        background: #fff;
+    }
+
+    .receipt-title {
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: 1px;
+    }
+</style>
+
+<div class="container-fluid">
+    <div class="row mb-3 no-print">
+        <div class="col">
+            <h3><i class="bi bi-receipt-cutoff"></i> Fees Pay</h3>
+            <p class="text-muted mb-0">Search and select a student, choose pending fee heads, and enter the amount for each selected fee to receive payment.</p>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(message))
+    {
+        <div class="alert @messageCss alert-dismissible fade show no-print" role="alert">
+            @message
+            <button type="button" class="btn-close" @onclick="ClearMessage"></button>
+        </div>
+    }
+
+    <div class="row no-print">
+        <div class="col-lg-5 mb-3">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h5 class="mb-0">Payment Receive</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Student Search</label>
+                        <input class="form-control" placeholder="Search by student name or roll number" @bind="studentSearchTerm" @bind:event="oninput" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Student *</label>
+                        <select class="form-select" value="@selectedStudentId" @onchange="OnStudentChanged">
+                            <option value="">Select Student</option>
+                            @foreach (var student in FilteredStudentsWithDues)
+                            {
+                                <option value="@student.Id">@GetStudentName(student) - @student.SessionName - @student.Class @student.Section - Roll: @student.RollNumber</option>
+                            }
+                        </select>
+                    </div>
+
+                    @if (SelectedStudent != null)
+                    {
+                        <div class="alert alert-light border">
+                            <strong>@GetStudentName(SelectedStudent)</strong><br />
+                            <small>Session: @SelectedStudent.SessionName | Class-Section: @SelectedStudent.Class @SelectedStudent.Section | Roll: @SelectedStudent.RollNumber</small><br />
+                            <strong>Total Outstanding: ₹@SelectedStudentOutstanding.ToString("N2")</strong><br />
+                            <strong>Selected Payment: ₹@SelectedPaymentTotal.ToString("N2")</strong>
+                        </div>
+                    }
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Receipt Amount *</label>
+                            <input class="form-control" value="@SelectedPaymentTotal.ToString("N2")" readonly />
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Payment Date</label>
+                            <InputDate class="form-control" @bind-Value="paymentDate" />
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Payment Method</label>
+                            <select class="form-select" @bind="paymentMethod">
+                                <option>Cash</option>
+                                <option>UPI</option>
+                                <option>Card</option>
+                                <option>Cheque</option>
+                                <option>Bank Transfer</option>
+                                <option>Online</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Transaction / Cheque No.</label>
+                            <InputText class="form-control" @bind-Value="transactionId" />
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Remarks</label>
+                        <InputText class="form-control" @bind-Value="remarks" />
+                    </div>
+
+                    <button class="btn btn-success" @onclick="ReceivePayment" disabled="@(SelectedStudent == null || SelectedPaymentTotal <= 0)">
+                        <i class="bi bi-cash-coin"></i> Receive Payment & Generate Receipt
+                    </button>
+                    <button class="btn btn-outline-secondary ms-2" @onclick="ResetPaymentForm">Clear</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-7 mb-3">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Pending Fees</h5>
+                    <span class="badge bg-warning text-dark">₹@SelectedStudentOutstanding.ToString("N2") Due</span>
+                </div>
+                <div class="card-body">
+                    @if (SelectedStudent == null)
+                    {
+                        <div class="alert alert-info mb-0">Select a student to view pending fees.</div>
+                    }
+                    else if (SelectedStudentDueFees.Any())
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 48px;">Select</th>
+                                        <th>Fee Head</th>
+                                        <th>Month</th>
+                                        <th>Due Date</th>
+                                        <th class="text-end">Total</th>
+                                        <th class="text-end">Paid</th>
+                                        <th class="text-end">Balance</th>
+                                        <th style="min-width: 140px;" class="text-end">Pay Amount</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var line in SelectedFeeLines)
+                                    {
+                                        var fee = line.Fee;
+                                        <tr>
+                                            <td>
+                                                <input class="form-check-input" type="checkbox" checked="@line.IsSelected" @onchange="@(e => ToggleFeeSelection(line, e))" />
+                                            </td>
+                                            <td>@fee.FeeType</td>
+                                            <td>@fee.FeeMonth</td>
+                                            <td>@fee.DueDate.ToString("dd MMM yyyy")</td>
+                                            <td class="text-end">₹@fee.TotalAmount.ToString("N2")</td>
+                                            <td class="text-end">₹@fee.PaidAmount.ToString("N2")</td>
+                                            <td class="text-end">₹@fee.BalanceAmount.ToString("N2")</td>
+                                            <td>
+                                                <InputNumber class="form-control form-control-sm text-end" @bind-Value="line.PayAmount" disabled="@(!line.IsSelected)" min="0" max="@fee.BalanceAmount" />
+                                            </td>
+                                            <td><span class="badge @GetStatusBadge(fee.Status)">@fee.Status</span></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-success mb-0">This student has no pending fees.</div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (currentReceipt != null)
+    {
+        <div class="receipt-print-area mb-4">
+            <div class="receipt-box">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <div class="receipt-title">FEE RECEIPT</div>
+                        <div class="text-muted">@SchoolProfile.Name</div>
+                    </div>
+                    <div class="text-end">
+                        <strong>Receipt No:</strong> @currentReceipt.ReceiptNumber<br />
+                        <strong>Date:</strong> @currentReceipt.ReceiptDate.ToString("dd MMM yyyy hh:mm tt")
+                    </div>
+                </div>
+
+                <hr />
+
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <strong>Student:</strong> @currentReceipt.StudentName<br />
+                        <strong>Roll No:</strong> @currentReceipt.RollNumber<br />
+                        <strong>Session:</strong> @currentReceipt.SessionName
+                    </div>
+                    <div class="col-md-6 text-md-end">
+                        <strong>Class-Section:</strong> @currentReceipt.ClassSectionName<br />
+                        <strong>Payment Mode:</strong> @currentReceipt.PaymentMethod<br />
+                        @if (!string.IsNullOrWhiteSpace(currentReceipt.TransactionId))
+                        {
+                            <span><strong>Transaction No:</strong> @currentReceipt.TransactionId</span>
+                        }
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-bordered">
+                        <thead>
+                            <tr>
+                                <th>Fee Head</th>
+                                <th>Month / Period</th>
+                                <th class="text-end">Due Before Payment</th>
+                                <th class="text-end">Paid Now</th>
+                                <th class="text-end">Balance</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in currentReceipt.Items)
+                            {
+                                <tr>
+                                    <td>@item.FeeHeadName</td>
+                                    <td>@item.FeeMonth</td>
+                                    <td class="text-end">₹@item.DueAmount.ToString("N2")</td>
+                                    <td class="text-end">₹@item.PaidAmount.ToString("N2")</td>
+                                    <td class="text-end">₹@item.BalanceAfterPayment.ToString("N2")</td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <th colspan="3" class="text-end">Receipt Amount</th>
+                                <th class="text-end">₹@currentReceipt.ReceiptAmount.ToString("N2")</th>
+                                <th></th>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(currentReceipt.Remarks))
+                {
+                    <p><strong>Remarks:</strong> @currentReceipt.Remarks</p>
+                }
+
+                <div class="row mt-5">
+                    <div class="col-6">
+                        <strong>Received By</strong><br />
+                        @currentReceipt.ReceivedBy
+                    </div>
+                    <div class="col-6 text-end">
+                        <strong>Authorized Signature</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-4 no-print">
+            <button class="btn btn-primary" @onclick="PrintReceipt"><i class="bi bi-printer"></i> Print Receipt</button>
+        </div>
+    }
+
+    <div class="card no-print">
+        <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+            <h5 class="mb-0">Receipt History</h5>
+            <button class="btn btn-outline-success btn-sm" @onclick="ExportReceiptsToExcel" disabled="@(!receipts.Any())">
+                <i class="bi bi-file-earmark-excel"></i> Excel Export
+            </button>
+        </div>
+        <div class="card-body">
+            @if (receipts.Any())
+            {
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover">
+                        <thead>
+                            <tr>
+                                <th>Receipt No</th>
+                                <th>Date</th>
+                                <th>Student</th>
+                                <th>Class-Section</th>
+                                <th>Mode</th>
+                                <th class="text-end">Amount</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var receipt in receipts.OrderByDescending(r => r.ReceiptDate))
+                            {
+                                <tr>
+                                    <td>@receipt.ReceiptNumber</td>
+                                    <td>@receipt.ReceiptDate.ToString("dd MMM yyyy")</td>
+                                    <td>@receipt.StudentName<br /><small class="text-muted">Roll: @receipt.RollNumber</small></td>
+                                    <td>@receipt.ClassSectionName</td>
+                                    <td>@receipt.PaymentMethod</td>
+                                    <td class="text-end">₹@receipt.ReceiptAmount.ToString("N2")</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewReceipt(receipt)">View / Print</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <div class="alert alert-info mb-0">No receipt has been generated yet.</div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<FeeRecord> fees = new();
+    private List<Student> students = new();
+    private List<FeePaymentReceipt> receipts = new();
+
+    private string selectedStudentId = string.Empty;
+    private string studentSearchTerm = string.Empty;
+    private List<SelectedFeePaymentLine> selectedFeeLines = new();
+    private DateTime paymentDate = DateTime.Today;
+    private string paymentMethod = "Cash";
+    private string transactionId = string.Empty;
+    private string remarks = string.Empty;
+    private string message = string.Empty;
+    private string messageCss = "alert-success";
+    private FeePaymentReceipt? currentReceipt;
+    private string preselectedFeeRecordId = string.Empty;
+
+    private Student? SelectedStudent => students.FirstOrDefault(s => s.Id == selectedStudentId);
+
+    private IEnumerable<Student> StudentsWithDues => students
+        .Where(s => s.IsActive && fees.Any(f => f.StudentId == s.Id && f.BalanceAmount > 0 && f.Status != "Paid"))
+        .OrderBy(s => s.SessionName)
+        .ThenBy(s => s.Class)
+        .ThenBy(s => s.Section)
+        .ThenBy(s => GetStudentName(s));
+
+    private IEnumerable<Student> FilteredStudentsWithDues => string.IsNullOrWhiteSpace(studentSearchTerm)
+        ? StudentsWithDues
+        : StudentsWithDues.Where(s =>
+            GetStudentName(s).Contains(studentSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+            (s.RollNumber ?? string.Empty).Contains(studentSearchTerm, StringComparison.OrdinalIgnoreCase));
+
+    private IEnumerable<FeeRecord> SelectedStudentDueFees => fees
+        .Where(f => f.StudentId == selectedStudentId && f.BalanceAmount > 0 && f.Status != "Paid")
+        .OrderBy(f => f.DueDate)
+        .ThenBy(f => f.CreatedDate);
+
+    private IEnumerable<SelectedFeePaymentLine> SelectedFeeLines => selectedFeeLines;
+
+    private decimal SelectedStudentOutstanding => SelectedStudentDueFees.Sum(f => f.BalanceAmount);
+
+    private decimal SelectedPaymentTotal => selectedFeeLines
+        .Where(l => l.IsSelected)
+        .Sum(l => Math.Min(Math.Max(l.PayAmount, 0), l.Fee.BalanceAmount));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+        ApplyQuerySelection();
+    }
+
+    private async Task LoadData()
+    {
+        fees = await FeeService.GetAllAsync();
+        students = await StudentService.GetAllAsync();
+        receipts = await ReceiptService.GetAllAsync();
+
+        foreach (var fee in fees.Where(f => f.Status == "Pending" && f.DueDate.Date < DateTime.Today))
+        {
+            fee.Status = "Overdue";
+            fee.LastUpdated = DateTime.Now;
+            await FeeService.UpdateAsync(fee);
+        }
+    }
+
+    private void OnStudentChanged(ChangeEventArgs e)
+    {
+        selectedStudentId = e.Value?.ToString() ?? string.Empty;
+        currentReceipt = null;
+        preselectedFeeRecordId = string.Empty;
+        BuildSelectedFeeLines();
+        ClearMessage();
+    }
+
+    private async Task ReceivePayment()
+    {
+        var student = SelectedStudent;
+        var selectedLines = selectedFeeLines
+            .Where(l => l.IsSelected && l.PayAmount > 0)
+            .Select(l => new { l.Fee, Amount = Math.Min(l.PayAmount, l.Fee.BalanceAmount) })
+            .ToList();
+
+        if (student == null)
+        {
+            ShowError("Please select a student.");
+            return;
+        }
+
+        if (!SelectedStudentDueFees.Any())
+        {
+            ShowError("The selected student has no pending fee.");
+            return;
+        }
+
+        if (!selectedLines.Any())
+        {
+            ShowError("Select at least one pending fee and enter the amount.");
+            return;
+        }
+
+        if (selectedFeeLines.Any(l => l.IsSelected && l.PayAmount > l.Fee.BalanceAmount))
+        {
+            ShowError("The pay amount cannot be greater than the fee balance.");
+            return;
+        }
+
+        var receiptAmount = selectedLines.Sum(l => l.Amount);
+
+        var receiptNumber = GenerateReceiptNumber();
+        var receipt = new FeePaymentReceipt
+        {
+            ReceiptNumber = receiptNumber,
+            ReceiptDate = paymentDate.Date.Add(DateTime.Now.TimeOfDay),
+            StudentId = student.Id,
+            StudentName = GetStudentName(student),
+            RollNumber = student.RollNumber,
+            SessionName = student.SessionName,
+            ClassSectionName = $"{student.Class}-{student.Section}",
+            ReceiptAmount = receiptAmount,
+            PaymentMethod = paymentMethod,
+            TransactionId = transactionId.Trim(),
+            Remarks = remarks.Trim(),
+            ReceivedBy = "Admin"
+        };
+
+        foreach (var line in selectedLines)
+        {
+            var fee = line.Fee;
+            var dueBeforePayment = fee.BalanceAmount;
+            var paidNow = line.Amount;
+
+            fee.PaidAmount += paidNow;
+            fee.PaymentDate = receipt.ReceiptDate;
+            fee.PaymentMethod = paymentMethod;
+            fee.TransactionId = transactionId.Trim();
+            fee.ReceiptNumber = receiptNumber;
+            fee.Status = fee.BalanceAmount <= 0 ? "Paid" : "Partial";
+            fee.LastUpdated = DateTime.Now;
+
+            receipt.Items.Add(new FeePaymentReceiptItem
+            {
+                FeeRecordId = fee.Id,
+                FeeHeadName = fee.FeeType,
+                FeeMonth = fee.FeeMonth,
+                DueAmount = dueBeforePayment,
+                PaidAmount = paidNow,
+                BalanceAfterPayment = fee.BalanceAmount
+            });
+
+            await FeeService.UpdateAsync(fee);
+        }
+
+        await ReceiptService.AddAsync(receipt);
+        currentReceipt = receipt;
+        ShowSuccess($"Receipt {receipt.ReceiptNumber} generated successfully.");
+
+        transactionId = string.Empty;
+        remarks = string.Empty;
+        await LoadData();
+        BuildSelectedFeeLines();
+    }
+
+    private void ViewReceipt(FeePaymentReceipt receipt)
+    {
+        currentReceipt = receipt;
+        ClearMessage();
+    }
+
+    private async Task PrintReceipt()
+    {
+        await JSRuntime.InvokeVoidAsync("window.print");
+    }
+
+    private async Task ExportReceiptsToExcel()
+    {
+        var exportRows = receipts.OrderByDescending(r => r.ReceiptDate).Select(receipt => new ReceiptExportRow
+        {
+            ReceiptNumber = receipt.ReceiptNumber,
+            ReceiptDate = receipt.ReceiptDate.ToString("dd-MMM-yyyy hh:mm tt"),
+            Student = receipt.StudentName,
+            RollNumber = receipt.RollNumber,
+            Session = receipt.SessionName,
+            ClassSection = receipt.ClassSectionName,
+            PaymentMethod = receipt.PaymentMethod,
+            TransactionId = receipt.TransactionId,
+            Amount = receipt.ReceiptAmount.ToString("N2"),
+            ReceivedBy = receipt.ReceivedBy,
+            Remarks = receipt.Remarks
+        }).ToList();
+
+        var columns = new[]
+        {
+            new[] { "receiptNumber", "Receipt No" },
+            new[] { "receiptDate", "Receipt Date" },
+            new[] { "student", "Student" },
+            new[] { "rollNumber", "Roll Number" },
+            new[] { "session", "Session" },
+            new[] { "classSection", "Class-Section" },
+            new[] { "paymentMethod", "Payment Method" },
+            new[] { "transactionId", "Transaction Id" },
+            new[] { "amount", "Amount" },
+            new[] { "receivedBy", "Received By" },
+            new[] { "remarks", "Remarks" }
+        };
+
+        await JSRuntime.InvokeVoidAsync("downloadExcelRows", columns, exportRows, "fee-receipts");
+    }
+
+    private sealed class ReceiptExportRow
+    {
+        public string ReceiptNumber { get; set; } = string.Empty;
+        public string ReceiptDate { get; set; } = string.Empty;
+        public string Student { get; set; } = string.Empty;
+        public string RollNumber { get; set; } = string.Empty;
+        public string Session { get; set; } = string.Empty;
+        public string ClassSection { get; set; } = string.Empty;
+        public string PaymentMethod { get; set; } = string.Empty;
+        public string TransactionId { get; set; } = string.Empty;
+        public string Amount { get; set; } = string.Empty;
+        public string ReceivedBy { get; set; } = string.Empty;
+        public string Remarks { get; set; } = string.Empty;
+    }
+
+    private void ResetPaymentForm()
+    {
+        selectedStudentId = string.Empty;
+        studentSearchTerm = string.Empty;
+        selectedFeeLines.Clear();
+        paymentDate = DateTime.Today;
+        paymentMethod = "Cash";
+        transactionId = string.Empty;
+        remarks = string.Empty;
+        currentReceipt = null;
+        ClearMessage();
+    }
+
+
+    private void ApplyQuerySelection()
+    {
+        var uri = new Uri(Navigation.Uri);
+        var queryValues = ParseQuery(uri.Query);
+
+        if (queryValues.TryGetValue("studentId", out var queryStudentId) && !string.IsNullOrWhiteSpace(queryStudentId))
+        {
+            selectedStudentId = queryStudentId;
+            var student = SelectedStudent;
+            studentSearchTerm = student == null ? string.Empty : GetStudentName(student);
+        }
+
+        if (queryValues.TryGetValue("feeId", out var queryFeeId))
+        {
+            preselectedFeeRecordId = queryFeeId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(selectedStudentId))
+        {
+            currentReceipt = null;
+            BuildSelectedFeeLines();
+        }
+    }
+
+    private static Dictionary<string, string> ParseQuery(string query)
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return values;
+        }
+
+        foreach (var pair in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = pair.Split('=', 2);
+            var key = Uri.UnescapeDataString(parts[0]);
+            var value = parts.Length > 1 ? Uri.UnescapeDataString(parts[1].Replace("+", " ")) : string.Empty;
+            values[key] = value;
+        }
+
+        return values;
+    }
+
+    private void BuildSelectedFeeLines()
+    {
+        selectedFeeLines = SelectedStudentDueFees
+            .Select(f => new SelectedFeePaymentLine
+            {
+                Fee = f,
+                IsSelected = string.IsNullOrWhiteSpace(preselectedFeeRecordId) ? false : f.Id == preselectedFeeRecordId,
+                PayAmount = string.IsNullOrWhiteSpace(preselectedFeeRecordId) || f.Id != preselectedFeeRecordId ? 0 : f.BalanceAmount
+            })
+            .ToList();
+    }
+
+    private void ToggleFeeSelection(SelectedFeePaymentLine line, ChangeEventArgs e)
+    {
+        line.IsSelected = e.Value is bool value && value;
+        line.PayAmount = line.IsSelected ? line.Fee.BalanceAmount : 0;
+    }
+
+    private string GetStudentName(Student student)
+    {
+        var fullName = (student.FullName ?? string.Empty).Trim();
+        if (!string.IsNullOrWhiteSpace(fullName))
+        {
+            return fullName;
+        }
+
+        return $"{student.FirstName} {student.LastName}".Trim();
+    }
+
+    private sealed class SelectedFeePaymentLine
+    {
+        public FeeRecord Fee { get; set; } = new();
+        public bool IsSelected { get; set; }
+        public decimal PayAmount { get; set; }
+    }
+
+    private string GenerateReceiptNumber()
+    {
+        var nextNumber = receipts.Count + 1;
+        return $"RCP{DateTime.Now:yyyyMMdd}{nextNumber:0000}";
+    }
+
+    private string GetStatusBadge(string status)
+    {
+        return status switch
+        {
+            "Paid" => "bg-success",
+            "Overdue" => "bg-danger",
+            "Partial" => "bg-info",
+            _ => "bg-warning text-dark"
+        };
+    }
+
+    private void ShowSuccess(string text)
+    {
+        message = text;
+        messageCss = "alert-success";
+    }
+
+    private void ShowError(string text)
+    {
+        message = text;
+        messageCss = "alert-danger";
+    }
+
+    private void ClearMessage()
+    {
+        message = string.Empty;
+    }
+}

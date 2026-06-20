@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Rajasv Infotech</title>
+    <base href="/" />
+    <link rel="stylesheet" href="lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="SchoolManagementApp.styles.css" />
+    <link rel="icon" href="data:,">
+</head>
+
+<body>
+
+    <div class="status-bar-safe-area"></div>
+
+    <div id="app">Loading...</div>
+
+    <div id="blazor-error-ui" data-nosnippet>
+        An unhandled error has occurred.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">🗙</span>
+    </div>
+
+
+    <script>
+        window.downloadExcelRows = (columns, rows, filePrefix) => {
+            const normalizedColumns = (columns ?? []).map(column => {
+                if (Array.isArray(column)) {
+                    return [column[0], column[1] ?? column[0]];
+                }
+
+                return [column.key ?? column.Key, column.title ?? column.Title ?? column.key ?? column.Key];
+            });
+
+            const getValue = (row, key) => {
+                const pascalKey = key.charAt(0).toUpperCase() + key.slice(1);
+                return row[key] ?? row[pascalKey] ?? '';
+            };
+
+            const escapeHtml = (value) => String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+
+            const headerCells = normalizedColumns.map(([, title]) => `<th>${escapeHtml(title)}</th>`).join('');
+            const bodyRows = (rows ?? []).map(row => {
+                const cells = normalizedColumns.map(([key]) => `<td>${escapeHtml(getValue(row, key))}</td>`).join('');
+                return `<tr>${cells}</tr>`;
+            }).join('');
+
+            const html = `
+                <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+                <head><meta charset="UTF-8"></head>
+                <body><table border="1"><thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody></table></body>
+                </html>`;
+
+            const blob = new Blob(['\ufeff', html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            const today = new Date().toISOString().slice(0, 10);
+            const safePrefix = (filePrefix || 'export').toString().replace(/[^a-z0-9-_]/gi, '-').toLowerCase();
+            link.href = url;
+            link.download = `${safePrefix}-${today}.xls`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        };
+
+        window.downloadStudentsExcel = (rows) => {
+            const columns = [
+                ['rollNumber', 'Roll Number'],
+                ['fullName', 'Full Name'],
+                ['session', 'Session'],
+                ['class', 'Class'],
+                ['section', 'Section'],
+                ['email', 'Email'],
+                ['phone', 'Phone'],
+                ['fatherName', 'Father Name'],
+                ['fatherContact', 'Father Contact'],
+                ['motherName', 'Mother Name'],
+                ['motherContact', 'Mother Contact'],
+                ['guardianName', 'Guardian Name'],
+                ['guardianContact', 'Guardian Contact'],
+                ['address', 'Address'],
+                ['admissionDate', 'Admission Date'],
+                ['dateOfBirth', 'Date of Birth'],
+                ['status', 'Status']
+            ];
+
+            window.downloadExcelRows(columns, rows, 'students');
+        };
+    </script>
+
+    <script src="_framework/blazor.webview.js" autostart="false"></script>
+
+</body>
+
+</html>

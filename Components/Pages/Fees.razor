@@ -1,0 +1,1214 @@
+@page "/fees"
+@using SchoolManagementApp.Models
+@using SchoolManagementApp.Services
+@inject IDataService<FeeRecord> FeeService
+@inject IDataService<Student> StudentService
+@inject IDataService<AcademicSession> SessionService
+@inject IDataService<ClassSection> ClassSectionService
+@inject IDataService<FeeHead> FeeHeadService
+@inject IDataService<CommonFeeRule> CommonFeeRuleService
+@inject IDataService<FeePaymentReceipt> ReceiptService
+@inject IJSRuntime JSRuntime
+
+<div class="container-fluid">
+    <div class="row mb-3">
+        <div class="col">
+            <h3><i class="bi bi-currency-rupee"></i> Fees Setup</h3>
+            <p class="text-muted mb-0">Create fee heads first, then apply common class-section fees or student-only non-common fees.</p>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(message))
+    {
+        <div class="alert @messageCss alert-dismissible fade show" role="alert">
+            @message
+            <button type="button" class="btn-close" @onclick="ClearMessage"></button>
+        </div>
+    }
+
+    <div class="row mb-4">
+        <div class="col-md-3 mb-2">
+            <div class="card bg-primary text-white h-100">
+                <div class="card-body">
+                    <small>Total Fee Heads</small>
+                    <h3>@feeHeads.Count</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-2">
+            <div class="card bg-warning text-dark h-100">
+                <div class="card-body">
+                    <small>Pending Amount</small>
+                    <h3>₹@fees.Where(f => f.Status != "Paid").Sum(f => f.BalanceAmount).ToString("N0")</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-2">
+            <div class="card bg-success text-white h-100">
+                <div class="card-body">
+                    <small>Paid Amount</small>
+                    <h3>₹@fees.Where(f => f.Status == "Paid").Sum(f => f.PaidAmount).ToString("N0")</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-2">
+            <div class="card bg-info text-white h-100">
+                <div class="card-body">
+                    <small>Total Charges</small>
+                    <h3>@fees.Count</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <ul class="nav nav-tabs mb-3">
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "heads" ? "active" : "")" @onclick='() => SetTab("heads")'>1. Fee Head</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "common" ? "active" : "")" @onclick='() => SetTab("common")'>2. Common Class-Section Fee</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == "student" ? "active" : "")" @onclick='() => SetTab("student")'>3. Student-only Fee</button>
+        </li>
+    </ul>
+
+    @if (activeTab == "heads")
+    {
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                <h5 class="mb-0">Fee Head Master</h5>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-success btn-sm" @onclick="ExportFeeHeadsToExcel" disabled="@(!feeHeads.Any())"><i class="bi bi-file-earmark-excel"></i> Excel Export</button>
+                    <button class="btn btn-primary btn-sm" @onclick="NewFeeHead"><i class="bi bi-plus-circle"></i> Add Fee Head</button>
+                </div>
+            </div>
+            <div class="card-body">
+                @if (showFeeHeadForm)
+                {
+                    <EditForm Model="currentFeeHead" OnValidSubmit="SaveFeeHead">
+                        <DataAnnotationsValidator />
+                        <div class="row">
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Fee Head Name *</label>
+                                <InputText class="form-control" @bind-Value="currentFeeHead.Name" placeholder="Tuition Fee" />
+                            </div>
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Code</label>
+                                <InputText class="form-control" @bind-Value="currentFeeHead.Code" placeholder="TF" />
+                            </div>
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Default Amount</label>
+                                <InputNumber class="form-control" @bind-Value="currentFeeHead.DefaultAmount" />
+                            </div>
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Frequency</label>
+                                <InputSelect class="form-select" @bind-Value="currentFeeHead.Frequency">
+                                    <option>Monthly</option>
+                                    <option>Quarterly</option>
+                                    <option>Half-Yearly</option>
+                                    <option>Yearly</option>
+                                    <option>One-time</option>
+                                </InputSelect>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Description</label>
+                                <InputText class="form-control" @bind-Value="currentFeeHead.Description" />
+                            </div>
+                        </div>
+                        <div class="form-check mb-3">
+                            <InputCheckbox class="form-check-input" @bind-Value="currentFeeHead.IsActive" />
+                            <label class="form-check-label">Active</label>
+                        </div>
+                        <button class="btn btn-success" type="submit">@(editingFeeHead ? "Update" : "Save") Fee Head</button>
+                        <button class="btn btn-secondary ms-2" type="button" @onclick="CancelFeeHead">Cancel</button>
+                    </EditForm>
+                    <hr />
+                }
+
+                @if (feeHeads.Any())
+                {
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Code</th>
+                                    <th>Default Amount</th>
+                                    <th>Frequency</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var head in feeHeads.OrderBy(h => h.Name))
+                                {
+                                    <tr>
+                                        <td>@head.Name</td>
+                                        <td>@head.Code</td>
+                                        <td>₹@head.DefaultAmount.ToString("N2")</td>
+                                        <td>@head.Frequency</td>
+                                        <td><span class="badge @(head.IsActive ? "bg-success" : "bg-secondary")">@(head.IsActive ? "Active" : "Inactive")</span></td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-primary" @onclick="() => EditFeeHead(head)">Edit</button>
+                                            <button class="btn btn-sm btn-outline-danger ms-1" @onclick="() => DeleteFeeHead(head.Id)">Delete</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-info mb-0">No fee head has been created yet. Add a fee head first.</div>
+                }
+            </div>
+        </div>
+    }
+
+    @if (activeTab == "common")
+    {
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0">Apply Common Class-Section Fee</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-light border">
+                    This option creates fee charges for all active students in the selected session and class-section at once.
+                </div>
+                <div class="row">
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label">Session *</label>
+                        <select class="form-select" value="@commonSessionId" @onchange="OnCommonSessionChanged">
+                            <option value="">Select Session</option>
+                            @foreach (var session in sessions.OrderByDescending(s => s.StartDate))
+                            {
+                                <option value="@session.Id">@session.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label">Class-Section *</label>
+                        <select class="form-select" value="@commonClassSectionId" @onchange="OnCommonClassSectionChanged" disabled="@string.IsNullOrWhiteSpace(commonSessionId)">
+                            <option value="">Select Class-Section</option>
+                            @foreach (var cs in CommonClassSections)
+                            {
+                                <option value="@cs.Id">@cs.DisplayName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label">Fee Head *</label>
+                        <select class="form-select" value="@commonFeeHeadId" @onchange="OnCommonFeeHeadChanged">
+                            <option value="">Select Fee Head</option>
+                            @foreach (var head in ActiveFeeHeads)
+                            {
+                                <option value="@head.Id">@head.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label">Amount *</label>
+                        <InputNumber class="form-control" @bind-Value="commonAmount" />
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label">Month / Period</label>
+                        <select class="form-select" @bind="commonMonth">
+                            <option value="">No Month</option>
+                            @foreach (var month in months)
+                            {
+                                <option value="@month">@month</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label">Due Date</label>
+                        <InputDate class="form-control" @bind-Value="commonDueDate" />
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Remarks</label>
+                        <InputText class="form-control" @bind-Value="commonRemarks" />
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <strong>Selected students:</strong> @CommonStudentCount
+                </div>
+                <button class="btn btn-success" @onclick="ApplyCommonFee" disabled="@(CommonStudentCount == 0)">
+                    <i class="bi bi-check-circle"></i> Apply Common Fee
+                </button>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                <h5 class="mb-0">Common Fee Resync</h5>
+                <small class="text-muted">Resync applies common fees to newly admitted students and removes deleted common fees only from unpaid records.</small>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 mb-3 align-items-end fee-filter-row">
+                    <div class="col-xl-3 col-lg-4 col-md-6">
+                        <label class="form-label small text-muted mb-1">Search</label>
+                        <input class="form-control" placeholder="Fee head / class-section" @bind="commonRuleSearchTerm" @bind:event="oninput" />
+                    </div>
+                    <div class="col-xl-2 col-lg-4 col-md-6">
+                        <label class="form-label small text-muted mb-1">Session</label>
+                        <select class="form-select" value="@commonRuleFilterSessionId" @onchange="OnCommonRuleFilterSessionChanged">
+                            <option value="">All Sessions</option>
+                            @foreach (var session in sessions.OrderByDescending(s => s.StartDate))
+                            {
+                                <option value="@session.Id">@session.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-xl-2 col-lg-4 col-md-6">
+                        <label class="form-label small text-muted mb-1">Class-Section</label>
+                        <select class="form-select" @bind="commonRuleFilterClassSectionId">
+                            <option value="">All Class-Sections</option>
+                            @foreach (var cs in CommonRuleFilterClassSections)
+                            {
+                                <option value="@cs.Id">@cs.DisplayName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-xl-2 col-lg-4 col-md-6">
+                        <label class="form-label small text-muted mb-1">Fee Head</label>
+                        <select class="form-select" @bind="commonRuleFilterFeeHeadId">
+                            <option value="">All Fee Heads</option>
+                            @foreach (var head in feeHeads.OrderBy(h => h.Name))
+                            {
+                                <option value="@head.Id">@head.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-xl-2 col-lg-4 col-md-6">
+                        <label class="form-label small text-muted mb-1">Status</label>
+                        <select class="form-select" @bind="commonRuleFilterStatus">
+                            <option value="">All Status</option>
+                            <option value="Active">Active</option>
+                            <option value="Deleted">Deleted</option>
+                        </select>
+                    </div>
+                    <div class="col-xl-1 col-lg-4 col-md-6 text-lg-end">
+                        <button class="btn btn-outline-secondary w-100" @onclick="ClearCommonRuleFilters">Clear</button>
+                    </div>
+                </div>
+
+                @if (VisibleCommonFeeRules.Any())
+                {
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Session</th>
+                                    <th>Class-Section</th>
+                                    <th>Fee</th>
+                                    <th>Month</th>
+                                    <th class="text-end">Amount</th>
+                                    <th>Status</th>
+                                    <th>Last Sync</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var rule in VisibleCommonFeeRules)
+                                {
+                                    <tr>
+                                        <td>@rule.SessionName</td>
+                                        <td>@rule.ClassSectionName</td>
+                                        <td>@rule.FeeHeadName</td>
+                                        <td>@(string.IsNullOrWhiteSpace(rule.FeeMonth) ? "-" : rule.FeeMonth)</td>
+                                        <td class="text-end">₹@rule.Amount.ToString("N2")</td>
+                                        <td><span class="badge @(rule.IsDeleted ? "bg-danger" : "bg-success")">@(rule.IsDeleted ? "Deleted" : "Active")</span></td>
+                                        <td>@(rule.LastSyncedDate?.ToString("dd-MMM-yyyy hh:mm tt") ?? "Never")</td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-primary" @onclick="() => ResyncCommonFee(rule.Id)">
+                                                <i class="bi bi-arrow-repeat"></i> Resync
+                                            </button>
+                                            @if (!rule.IsDeleted)
+                                            {
+                                                <button class="btn btn-sm btn-outline-danger ms-1" @onclick="() => DeleteCommonFeeRule(rule.Id)">
+                                                    <i class="bi bi-trash"></i> Delete Common Fee
+                                                </button>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-info mb-0">No common fee has been applied yet.</div>
+                }
+            </div>
+        </div>
+    }
+
+    @if (activeTab == "student")
+    {
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0">Apply Non-common Student-only Fee</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-light border">
+                    This option creates a fee charge only for the selected student, such as transport, fine, discount-adjusted charge, exam fee, etc.
+                </div>
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label">Student *</label>
+                        <input class="form-control mb-2" placeholder="Search student name..." @bind="studentFeeSearchTerm" @bind:event="oninput" />
+                        <select class="form-select" value="@studentFeeStudentId" @onchange="OnStudentFeeStudentChanged">
+                            <option value="">Select Student</option>
+                            @foreach (var student in FilteredStudentFeeStudents)
+                            {
+                                <option value="@student.Id">@student.FirstName @student.LastName - @student.SessionName - @student.Class @student.Section</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label">Fee Head *</label>
+                        <select class="form-select" value="@studentFeeHeadId" @onchange="OnStudentFeeHeadChanged">
+                            <option value="">Select Fee Head</option>
+                            @foreach (var head in ActiveFeeHeads)
+                            {
+                                <option value="@head.Id">@head.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2 mb-3">
+                        <label class="form-label">Amount *</label>
+                        <InputNumber class="form-control" @bind-Value="studentAmount" />
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label">Due Date</label>
+                        <InputDate class="form-control" @bind-Value="studentDueDate" />
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label">Month / Period</label>
+                        <select class="form-select" @bind="studentMonth">
+                            <option value="">No Month</option>
+                            @foreach (var month in months)
+                            {
+                                <option value="@month">@month</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-9 mb-3">
+                        <label class="form-label">Remarks</label>
+                        <InputText class="form-control" @bind-Value="studentRemarks" />
+                    </div>
+                </div>
+                <button class="btn btn-success" @onclick="ApplyStudentFee">
+                    <i class="bi bi-check-circle"></i> Apply Student-only Fee
+                </button>
+            </div>
+        </div>
+    }
+
+
+</div>
+
+@if (showCommonDeleteConfirm && pendingDeleteCommonRule != null)
+{
+    <div class="modal-backdrop show"></div>
+    <div class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content modern-confirm-modal">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title mb-1"><i class="bi bi-exclamation-triangle text-danger"></i> Confirm Common Fee Delete</h5>
+                        <small class="text-muted">This action will be synced to matching student fee records.</small>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="CancelCommonFeeDelete"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="confirm-summary">
+                        <div><strong>Session:</strong> @pendingDeleteCommonRule.SessionName</div>
+                        <div><strong>Class-Section:</strong> @pendingDeleteCommonRule.ClassSectionName</div>
+                        <div><strong>Fee Head:</strong> @pendingDeleteCommonRule.FeeHeadName</div>
+                        <div><strong>Amount:</strong> ₹@pendingDeleteCommonRule.Amount.ToString("N2")</div>
+                        <div><strong>Month:</strong> @(string.IsNullOrWhiteSpace(pendingDeleteCommonRule.FeeMonth) ? "-" : pendingDeleteCommonRule.FeeMonth)</div>
+                    </div>
+                    <div class="alert alert-warning mt-3 mb-0">
+                        Unpaid common fee records will be removed from students. Paid, partially paid, or receipt-generated records will be kept safe.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" @onclick="CancelCommonFeeDelete">Cancel</button>
+                    <button type="button" class="btn btn-danger" @onclick="ConfirmCommonFeeDelete">Yes, Delete & Resync</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<FeeRecord> fees = new();
+    private List<Student> students = new();
+    private List<AcademicSession> sessions = new();
+    private List<ClassSection> classSections = new();
+    private List<FeeHead> feeHeads = new();
+    private List<CommonFeeRule> commonFeeRules = new();
+    private List<FeePaymentReceipt> receipts = new();
+
+    private string activeTab = "heads";
+    private string message = string.Empty;
+    private string messageCss = "alert-success";
+
+    private bool showFeeHeadForm;
+    private bool editingFeeHead;
+    private FeeHead currentFeeHead = new();
+
+    private string commonSessionId = string.Empty;
+    private string commonClassSectionId = string.Empty;
+    private string commonFeeHeadId = string.Empty;
+    private decimal commonAmount;
+    private string commonMonth = string.Empty;
+    private DateTime commonDueDate = DateTime.Today.AddDays(30);
+    private string commonRemarks = string.Empty;
+
+    private string studentFeeStudentId = string.Empty;
+    private string studentFeeSearchTerm = string.Empty;
+    private string studentFeeHeadId = string.Empty;
+    private decimal studentAmount;
+    private string studentMonth = string.Empty;
+    private DateTime studentDueDate = DateTime.Today.AddDays(30);
+    private string studentRemarks = string.Empty;
+
+    private string searchTerm = string.Empty;
+    private string filterStatus = string.Empty;
+    private string filterFeeHead = string.Empty;
+    private string filterChargeType = string.Empty;
+    private string filterSessionId = string.Empty;
+    private string filterClassSectionId = string.Empty;
+
+    private string commonRuleSearchTerm = string.Empty;
+    private string commonRuleFilterSessionId = string.Empty;
+    private string commonRuleFilterClassSectionId = string.Empty;
+    private string commonRuleFilterFeeHeadId = string.Empty;
+    private string commonRuleFilterStatus = string.Empty;
+    private bool showCommonDeleteConfirm;
+    private CommonFeeRule? pendingDeleteCommonRule;
+
+    private readonly string[] months = new[]
+    {
+        "April", "May", "June", "July", "August", "September",
+        "October", "November", "December", "January", "February", "March"
+    };
+
+    private IEnumerable<FeeHead> ActiveFeeHeads => feeHeads.Where(h => h.IsActive).OrderBy(h => h.Name);
+    private IEnumerable<Student> FilteredStudentFeeStudents => students
+        .Where(s => s.IsActive)
+        .Where(s => string.IsNullOrWhiteSpace(studentFeeSearchTerm) ||
+            ($"{s.FirstName} {s.LastName}".Contains(studentFeeSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+             (s.RollNumber ?? string.Empty).Contains(studentFeeSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+             (s.SessionName ?? string.Empty).Contains(studentFeeSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+             (s.Class ?? string.Empty).Contains(studentFeeSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+             (s.Section ?? string.Empty).Contains(studentFeeSearchTerm, StringComparison.OrdinalIgnoreCase)))
+        .OrderBy(s => s.SessionName)
+        .ThenBy(s => s.Class)
+        .ThenBy(s => s.Section)
+        .ThenBy(s => s.FirstName);
+
+
+    private IEnumerable<ClassSection> CommonClassSections => classSections
+        .Where(c => c.IsActive && c.SessionId == commonSessionId)
+        .OrderBy(c => c.ClassName)
+        .ThenBy(c => c.SectionName);
+
+    private int CommonStudentCount => students.Count(s =>
+        s.IsActive &&
+        s.SessionId == commonSessionId &&
+        s.ClassSectionId == commonClassSectionId);
+
+    private IEnumerable<ClassSection> CommonRuleFilterClassSections => classSections
+        .Where(c => string.IsNullOrWhiteSpace(commonRuleFilterSessionId) || c.SessionId == commonRuleFilterSessionId)
+        .OrderBy(c => c.SessionName)
+        .ThenBy(c => c.ClassName)
+        .ThenBy(c => c.SectionName);
+
+    private IEnumerable<CommonFeeRule> VisibleCommonFeeRules => commonFeeRules
+        .Where(r =>
+            (string.IsNullOrWhiteSpace(commonRuleSearchTerm) ||
+                (r.FeeHeadName ?? string.Empty).Contains(commonRuleSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+                (r.ClassSectionName ?? string.Empty).Contains(commonRuleSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+                (r.SessionName ?? string.Empty).Contains(commonRuleSearchTerm, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(commonRuleFilterSessionId) || r.SessionId == commonRuleFilterSessionId) &&
+            (string.IsNullOrWhiteSpace(commonRuleFilterClassSectionId) || r.ClassSectionId == commonRuleFilterClassSectionId) &&
+            (string.IsNullOrWhiteSpace(commonRuleFilterFeeHeadId) || r.FeeHeadId == commonRuleFilterFeeHeadId) &&
+            (string.IsNullOrWhiteSpace(commonRuleFilterStatus) ||
+                (commonRuleFilterStatus == "Deleted" && r.IsDeleted) ||
+                (commonRuleFilterStatus == "Active" && !r.IsDeleted)))
+        .OrderByDescending(r => r.CreatedDate)
+        .ThenBy(r => r.SessionName)
+        .ThenBy(r => r.ClassSectionName)
+        .ThenBy(r => r.FeeHeadName);
+
+    private IEnumerable<ClassSection> RecordFilterClassSections => classSections
+        .Where(c => string.IsNullOrWhiteSpace(filterSessionId) || c.SessionId == filterSessionId)
+        .OrderBy(c => c.SessionName)
+        .ThenBy(c => c.ClassName)
+        .ThenBy(c => c.SectionName);
+
+    private IEnumerable<FeeRecord> FilteredFees => fees.Where(f =>
+        (string.IsNullOrWhiteSpace(searchTerm) ||
+            (f.StudentName ?? string.Empty).Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+            (f.ReceiptNumber ?? string.Empty).Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+            (f.RollNumber ?? string.Empty).Contains(searchTerm, StringComparison.OrdinalIgnoreCase)) &&
+        (string.IsNullOrWhiteSpace(filterSessionId) || f.SessionId == filterSessionId) &&
+        (string.IsNullOrWhiteSpace(filterClassSectionId) || f.ClassSectionId == filterClassSectionId) &&
+        (string.IsNullOrWhiteSpace(filterStatus) || f.Status == filterStatus) &&
+        (string.IsNullOrWhiteSpace(filterFeeHead) || f.FeeType == filterFeeHead) &&
+        (string.IsNullOrWhiteSpace(filterChargeType) || f.ChargeType == filterChargeType))
+        .OrderByDescending(f => f.CreatedDate);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        fees = await FeeService.GetAllAsync();
+        students = await StudentService.GetAllAsync();
+        sessions = await SessionService.GetAllAsync();
+        classSections = await ClassSectionService.GetAllAsync();
+        feeHeads = await FeeHeadService.GetAllAsync();
+        commonFeeRules = await CommonFeeRuleService.GetAllAsync();
+        receipts = await ReceiptService.GetAllAsync();
+        await EnsureCommonFeeRulesForExistingFees();
+
+        foreach (var fee in fees.Where(f => f.Status == "Pending" && f.DueDate.Date < DateTime.Today))
+        {
+            fee.Status = "Overdue";
+            fee.LastUpdated = DateTime.Now;
+            await FeeService.UpdateAsync(fee);
+        }
+    }
+
+    private void SetTab(string tab)
+    {
+        activeTab = tab;
+        ClearMessage();
+    }
+
+    private void NewFeeHead()
+    {
+        currentFeeHead = new FeeHead { IsActive = true, Frequency = "Monthly" };
+        editingFeeHead = false;
+        showFeeHeadForm = true;
+    }
+
+    private void EditFeeHead(FeeHead head)
+    {
+        currentFeeHead = new FeeHead
+        {
+            Id = head.Id,
+            Name = head.Name,
+            Code = head.Code,
+            DefaultAmount = head.DefaultAmount,
+            Frequency = head.Frequency,
+            IsActive = head.IsActive,
+            Description = head.Description,
+            CreatedDate = head.CreatedDate
+        };
+        editingFeeHead = true;
+        showFeeHeadForm = true;
+    }
+
+    private async Task SaveFeeHead()
+    {
+        if (string.IsNullOrWhiteSpace(currentFeeHead.Name))
+        {
+            ShowError("Fee head name is required.");
+            return;
+        }
+
+        currentFeeHead.Name = currentFeeHead.Name.Trim();
+        currentFeeHead.Code = currentFeeHead.Code.Trim();
+
+        var duplicate = feeHeads.Any(h =>
+            h.Id != currentFeeHead.Id &&
+            h.Name.Equals(currentFeeHead.Name, StringComparison.OrdinalIgnoreCase));
+
+        if (duplicate)
+        {
+            ShowError("This fee head already exists.");
+            return;
+        }
+
+        if (editingFeeHead)
+        {
+            await FeeHeadService.UpdateAsync(currentFeeHead);
+            ShowSuccess("Fee head updated successfully.");
+        }
+        else
+        {
+            await FeeHeadService.AddAsync(currentFeeHead);
+            ShowSuccess("Fee head saved successfully.");
+        }
+
+        showFeeHeadForm = false;
+        await LoadData();
+    }
+
+    private async Task DeleteFeeHead(string id)
+    {
+        if (fees.Any(f => f.FeeHeadId == id))
+        {
+            ShowError("Fee records exist for this fee head, so it cannot be deleted.");
+            return;
+        }
+
+        await FeeHeadService.DeleteAsync(id);
+        ShowSuccess("Fee head deleted successfully.");
+        await LoadData();
+    }
+
+    private void CancelFeeHead()
+    {
+        showFeeHeadForm = false;
+        editingFeeHead = false;
+        currentFeeHead = new FeeHead();
+    }
+
+    private async Task ExportFeeHeadsToExcel()
+    {
+        var exportRows = feeHeads.OrderBy(h => h.Name).Select(head => new FeeHeadExportRow
+        {
+            Name = head.Name,
+            Code = head.Code,
+            DefaultAmount = head.DefaultAmount.ToString("N2"),
+            Frequency = head.Frequency,
+            Status = head.IsActive ? "Active" : "Inactive",
+            Description = head.Description,
+            CreatedDate = head.CreatedDate.ToString("dd-MMM-yyyy")
+        }).ToList();
+
+        var columns = new[]
+        {
+            new[] { "name", "Fee Head Name" },
+            new[] { "code", "Code" },
+            new[] { "defaultAmount", "Default Amount" },
+            new[] { "frequency", "Frequency" },
+            new[] { "status", "Status" },
+            new[] { "description", "Description" },
+            new[] { "createdDate", "Created Date" }
+        };
+
+        await JSRuntime.InvokeVoidAsync("downloadExcelRows", columns, exportRows, "fee-heads");
+    }
+
+    private sealed class FeeHeadExportRow
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Code { get; set; } = string.Empty;
+        public string DefaultAmount { get; set; } = string.Empty;
+        public string Frequency { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public string CreatedDate { get; set; } = string.Empty;
+    }
+
+    private void OnCommonSessionChanged(ChangeEventArgs e)
+    {
+        commonSessionId = e.Value?.ToString() ?? string.Empty;
+        commonClassSectionId = string.Empty;
+    }
+
+    private void OnCommonClassSectionChanged(ChangeEventArgs e)
+    {
+        commonClassSectionId = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private void OnCommonFeeHeadChanged(ChangeEventArgs e)
+    {
+        commonFeeHeadId = e.Value?.ToString() ?? string.Empty;
+        var head = feeHeads.FirstOrDefault(h => h.Id == commonFeeHeadId);
+        if (head != null && head.DefaultAmount > 0)
+        {
+            commonAmount = head.DefaultAmount;
+        }
+    }
+
+    private void OnStudentFeeStudentChanged(ChangeEventArgs e)
+    {
+        studentFeeStudentId = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private void OnStudentFeeHeadChanged(ChangeEventArgs e)
+    {
+        studentFeeHeadId = e.Value?.ToString() ?? string.Empty;
+        var head = feeHeads.FirstOrDefault(h => h.Id == studentFeeHeadId);
+        if (head != null && head.DefaultAmount > 0)
+        {
+            studentAmount = head.DefaultAmount;
+        }
+    }
+
+    private async Task ApplyCommonFee()
+    {
+        var session = sessions.FirstOrDefault(s => s.Id == commonSessionId);
+        var classSection = classSections.FirstOrDefault(c => c.Id == commonClassSectionId);
+        var head = feeHeads.FirstOrDefault(h => h.Id == commonFeeHeadId);
+
+        if (session == null || classSection == null || head == null || commonAmount <= 0)
+        {
+            ShowError("Session, class-section, fee head, and amount are required.");
+            return;
+        }
+
+        if (CommonStudentCount == 0)
+        {
+            ShowError("No active student was found in the selected class-section.");
+            return;
+        }
+
+        var rule = commonFeeRules.FirstOrDefault(r =>
+            r.SessionId == session.Id &&
+            r.ClassSectionId == classSection.Id &&
+            r.FeeHeadId == head.Id &&
+            r.FeeMonth == commonMonth);
+
+        if (rule == null)
+        {
+            rule = new CommonFeeRule
+            {
+                SessionId = session.Id,
+                SessionName = session.Name,
+                ClassSectionId = classSection.Id,
+                ClassSectionName = classSection.DisplayName,
+                FeeHeadId = head.Id,
+                FeeHeadName = head.Name,
+                FeeMonth = commonMonth,
+                Amount = commonAmount,
+                DueDate = commonDueDate,
+                Remarks = commonRemarks.Trim(),
+                IsActive = true,
+                IsDeleted = false,
+                CreatedDate = DateTime.Now
+            };
+            await CommonFeeRuleService.AddAsync(rule);
+            commonFeeRules.Add(rule);
+        }
+        else
+        {
+            rule.SessionName = session.Name;
+            rule.ClassSectionName = classSection.DisplayName;
+            rule.FeeHeadName = head.Name;
+            rule.Amount = commonAmount;
+            rule.DueDate = commonDueDate;
+            rule.Remarks = commonRemarks.Trim();
+            rule.IsActive = true;
+            rule.IsDeleted = false;
+            rule.DeletedDate = null;
+            await CommonFeeRuleService.UpdateAsync(rule);
+        }
+
+        var result = await SyncCommonFeeRule(rule);
+        ShowSuccess($"Common fee synced successfully. New charges: {result.created}, existing linked: {result.linked}, protected paid/receipt records kept: {result.protectedCount}.");
+        commonFeeHeadId = string.Empty;
+        commonAmount = 0;
+        commonRemarks = string.Empty;
+        await LoadData();
+    }
+
+    private async Task ResyncCommonFee(string ruleId)
+    {
+        var rule = commonFeeRules.FirstOrDefault(r => r.Id == ruleId);
+        if (rule == null)
+        {
+            ShowError("Common fee rule was not found.");
+            return;
+        }
+
+        var result = await SyncCommonFeeRule(rule);
+        if (rule.IsDeleted)
+        {
+            ShowSuccess($"Deleted common fee resynced. Removed unpaid records: {result.removed}, paid/partial/receipt records kept: {result.protectedCount}.");
+        }
+        else
+        {
+            ShowSuccess($"Common fee resynced. New charges: {result.created}, existing linked: {result.linked}, paid/partial/receipt records kept: {result.protectedCount}.");
+        }
+        await LoadData();
+    }
+
+    private Task DeleteCommonFeeRule(string ruleId)
+    {
+        var rule = commonFeeRules.FirstOrDefault(r => r.Id == ruleId);
+        if (rule == null)
+        {
+            ShowError("Common fee rule was not found.");
+            return Task.CompletedTask;
+        }
+
+        pendingDeleteCommonRule = rule;
+        showCommonDeleteConfirm = true;
+        return Task.CompletedTask;
+    }
+
+    private void CancelCommonFeeDelete()
+    {
+        showCommonDeleteConfirm = false;
+        pendingDeleteCommonRule = null;
+    }
+
+    private async Task ConfirmCommonFeeDelete()
+    {
+        if (pendingDeleteCommonRule == null)
+        {
+            CancelCommonFeeDelete();
+            return;
+        }
+
+        var rule = pendingDeleteCommonRule;
+        CancelCommonFeeDelete();
+
+        rule.IsActive = false;
+        rule.IsDeleted = true;
+        rule.DeletedDate = DateTime.Now;
+        await CommonFeeRuleService.UpdateAsync(rule);
+
+        var result = await SyncCommonFeeRule(rule);
+        ShowSuccess($"Common fee deleted and resynced. Removed unpaid records: {result.removed}, paid/partial/receipt records kept: {result.protectedCount}.");
+        await LoadData();
+    }
+
+    private async Task<(int created, int linked, int removed, int protectedCount)> SyncCommonFeeRule(CommonFeeRule rule)
+    {
+        var created = 0;
+        var linked = 0;
+        var removed = 0;
+        var protectedCount = 0;
+
+        if (rule.IsDeleted || !rule.IsActive)
+        {
+            var matchingFees = fees.Where(f => IsSameCommonFee(f, rule)).ToList();
+            foreach (var fee in matchingFees)
+            {
+                if (IsProtectedFee(fee))
+                {
+                    if (string.IsNullOrWhiteSpace(fee.CommonFeeRuleId))
+                    {
+                        fee.CommonFeeRuleId = rule.Id;
+                        await FeeService.UpdateAsync(fee);
+                    }
+                    protectedCount++;
+                    continue;
+                }
+
+                await FeeService.DeleteAsync(fee.Id);
+                removed++;
+            }
+
+            rule.LastSyncedDate = DateTime.Now;
+            await CommonFeeRuleService.UpdateAsync(rule);
+            return (created, linked, removed, protectedCount);
+        }
+
+        var targetStudents = students.Where(s =>
+            s.IsActive &&
+            s.SessionId == rule.SessionId &&
+            s.ClassSectionId == rule.ClassSectionId).ToList();
+
+        var session = sessions.FirstOrDefault(s => s.Id == rule.SessionId) ?? new AcademicSession { Id = rule.SessionId, Name = rule.SessionName };
+        var classSection = classSections.FirstOrDefault(c => c.Id == rule.ClassSectionId) ?? new ClassSection
+        {
+            Id = rule.ClassSectionId,
+            SessionId = rule.SessionId,
+            SessionName = rule.SessionName,
+            ClassName = rule.ClassSectionName,
+            SectionName = string.Empty
+        };
+        var head = feeHeads.FirstOrDefault(h => h.Id == rule.FeeHeadId) ?? new FeeHead { Id = rule.FeeHeadId, Name = rule.FeeHeadName };
+
+        foreach (var student in targetStudents)
+        {
+            var existing = fees.FirstOrDefault(f => IsSameCommonFee(f, rule, student.Id));
+            if (existing == null)
+            {
+                await FeeService.AddAsync(CreateFeeRecord(student, session, classSection, head, rule.Amount, rule.FeeMonth, rule.DueDate, rule.Remarks, "Common", rule.Id));
+                created++;
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(existing.CommonFeeRuleId))
+            {
+                existing.CommonFeeRuleId = rule.Id;
+                linked++;
+            }
+
+            if (IsProtectedFee(existing))
+            {
+                protectedCount++;
+                await FeeService.UpdateAsync(existing);
+                continue;
+            }
+
+            existing.SessionName = rule.SessionName;
+            existing.ClassSectionName = rule.ClassSectionName;
+            existing.FeeType = rule.FeeHeadName;
+            existing.Amount = rule.Amount;
+            existing.DueDate = rule.DueDate;
+            existing.Remarks = rule.Remarks;
+            existing.LastUpdated = DateTime.Now;
+            await FeeService.UpdateAsync(existing);
+        }
+
+        rule.LastSyncedDate = DateTime.Now;
+        await CommonFeeRuleService.UpdateAsync(rule);
+        return (created, linked, removed, protectedCount);
+    }
+
+    private async Task EnsureCommonFeeRulesForExistingFees()
+    {
+        var commonFeesWithoutRule = fees
+            .Where(f => f.ChargeType == "Common" && string.IsNullOrWhiteSpace(f.CommonFeeRuleId))
+            .ToList();
+
+        if (!commonFeesWithoutRule.Any())
+        {
+            return;
+        }
+
+        var groups = commonFeesWithoutRule.GroupBy(f => new
+        {
+            f.SessionId,
+            f.SessionName,
+            f.ClassSectionId,
+            f.ClassSectionName,
+            f.FeeHeadId,
+            f.FeeType,
+            f.FeeMonth,
+            f.Amount,
+            f.DueDate,
+            f.Remarks
+        });
+
+        foreach (var group in groups)
+        {
+            var key = group.Key;
+            var rule = commonFeeRules.FirstOrDefault(r =>
+                r.SessionId == key.SessionId &&
+                r.ClassSectionId == key.ClassSectionId &&
+                r.FeeHeadId == key.FeeHeadId &&
+                r.FeeMonth == key.FeeMonth &&
+                r.Amount == key.Amount &&
+                r.DueDate.Date == key.DueDate.Date);
+
+            if (rule == null)
+            {
+                rule = new CommonFeeRule
+                {
+                    SessionId = key.SessionId,
+                    SessionName = key.SessionName,
+                    ClassSectionId = key.ClassSectionId,
+                    ClassSectionName = key.ClassSectionName,
+                    FeeHeadId = key.FeeHeadId,
+                    FeeHeadName = key.FeeType,
+                    FeeMonth = key.FeeMonth,
+                    Amount = key.Amount,
+                    DueDate = key.DueDate,
+                    Remarks = key.Remarks,
+                    IsActive = true,
+                    IsDeleted = false,
+                    CreatedDate = group.Min(f => f.CreatedDate)
+                };
+                await CommonFeeRuleService.AddAsync(rule);
+                commonFeeRules.Add(rule);
+            }
+
+            foreach (var fee in group)
+            {
+                fee.CommonFeeRuleId = rule.Id;
+                await FeeService.UpdateAsync(fee);
+            }
+        }
+    }
+
+    private bool IsSameCommonFee(FeeRecord fee, CommonFeeRule rule, string? studentId = null)
+    {
+        if (!string.IsNullOrWhiteSpace(studentId) && fee.StudentId != studentId)
+        {
+            return false;
+        }
+
+        if (fee.ChargeType != "Common")
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(fee.CommonFeeRuleId) && fee.CommonFeeRuleId == rule.Id)
+        {
+            return true;
+        }
+
+        return fee.SessionId == rule.SessionId &&
+            fee.ClassSectionId == rule.ClassSectionId &&
+            fee.FeeHeadId == rule.FeeHeadId &&
+            fee.FeeMonth == rule.FeeMonth &&
+            fee.AcademicYear == rule.SessionName;
+    }
+
+    private bool IsProtectedFee(FeeRecord fee)
+    {
+        return fee.PaidAmount > 0 ||
+            fee.Status == "Paid" ||
+            fee.Status == "Partial" ||
+            !string.IsNullOrWhiteSpace(fee.ReceiptNumber) ||
+            receipts.Any(r => r.Items.Any(i => i.FeeRecordId == fee.Id));
+    }
+
+    private async Task ApplyStudentFee()
+    {
+        var student = students.FirstOrDefault(s => s.Id == studentFeeStudentId);
+        var head = feeHeads.FirstOrDefault(h => h.Id == studentFeeHeadId);
+
+        if (student == null || head == null || studentAmount <= 0)
+        {
+            ShowError("Student, fee head, and amount are required.");
+            return;
+        }
+
+        var session = sessions.FirstOrDefault(s => s.Id == student.SessionId) ?? new AcademicSession { Id = student.SessionId, Name = student.SessionName };
+        var classSection = classSections.FirstOrDefault(c => c.Id == student.ClassSectionId) ?? new ClassSection
+        {
+            Id = student.ClassSectionId,
+            SessionId = student.SessionId,
+            SessionName = student.SessionName,
+            ClassName = student.Class,
+            SectionName = student.Section
+        };
+
+        await FeeService.AddAsync(CreateFeeRecord(student, session, classSection, head, studentAmount, studentMonth, studentDueDate, studentRemarks, "Student"));
+        ShowSuccess("Student-only fee applied successfully.");
+        studentFeeHeadId = string.Empty;
+        studentAmount = 0;
+        studentRemarks = string.Empty;
+        await LoadData();
+    }
+
+    private FeeRecord CreateFeeRecord(Student student, AcademicSession session, ClassSection classSection, FeeHead head, decimal amount, string month, DateTime dueDate, string remarks, string chargeType, string commonFeeRuleId = "")
+    {
+        return new FeeRecord
+        {
+            StudentId = student.Id,
+            StudentName = $"{student.FirstName} {student.LastName}".Trim(),
+            StudentClass = $"{student.Class}-{student.Section}",
+            RollNumber = student.RollNumber,
+            SessionId = session.Id,
+            SessionName = session.Name,
+            ClassSectionId = classSection.Id,
+            ClassSectionName = classSection.DisplayName,
+            AcademicYear = session.Name,
+            FeeHeadId = head.Id,
+            FeeType = head.Name,
+            FeeMonth = month,
+            ChargeType = chargeType,
+            CommonFeeRuleId = commonFeeRuleId,
+            Amount = amount,
+            DueDate = dueDate,
+            Status = "Pending",
+            Remarks = remarks,
+            CreatedDate = DateTime.Now
+        };
+    }
+
+
+    private void OnCommonRuleFilterSessionChanged(ChangeEventArgs e)
+    {
+        commonRuleFilterSessionId = e.Value?.ToString() ?? string.Empty;
+        commonRuleFilterClassSectionId = string.Empty;
+    }
+
+    private void ClearCommonRuleFilters()
+    {
+        commonRuleSearchTerm = string.Empty;
+        commonRuleFilterSessionId = string.Empty;
+        commonRuleFilterClassSectionId = string.Empty;
+        commonRuleFilterFeeHeadId = string.Empty;
+        commonRuleFilterStatus = string.Empty;
+    }
+
+    private void OnRecordFilterSessionChanged(ChangeEventArgs e)
+    {
+        filterSessionId = e.Value?.ToString() ?? string.Empty;
+        filterClassSectionId = string.Empty;
+    }
+
+    private void OnRecordFilterClassSectionChanged(ChangeEventArgs e)
+    {
+        filterClassSectionId = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private async Task MarkPaid(FeeRecord fee)
+    {
+        fee.Status = "Paid";
+        fee.PaidAmount = fee.TotalAmount;
+        fee.PaymentDate = DateTime.Now;
+        fee.PaymentMethod = string.IsNullOrWhiteSpace(fee.PaymentMethod) ? "Cash" : fee.PaymentMethod;
+        fee.ReceiptNumber = string.IsNullOrWhiteSpace(fee.ReceiptNumber) ? GenerateReceiptNumber() : fee.ReceiptNumber;
+        fee.LastUpdated = DateTime.Now;
+        await FeeService.UpdateAsync(fee);
+        ShowSuccess("Fee marked as paid successfully.");
+        await LoadData();
+    }
+
+    private async Task DeleteFee(string id)
+    {
+        await FeeService.DeleteAsync(id);
+        ShowSuccess("Fee record deleted successfully.");
+        await LoadData();
+    }
+
+    private void ClearFilters()
+    {
+        searchTerm = string.Empty;
+        filterStatus = string.Empty;
+        filterFeeHead = string.Empty;
+        filterChargeType = string.Empty;
+        filterSessionId = string.Empty;
+        filterClassSectionId = string.Empty;
+    }
+
+    private string GenerateReceiptNumber()
+    {
+        return $"RCP{DateTime.Now:yyyyMMddHHmmss}";
+    }
+
+    private string GetStatusBadge(string status)
+    {
+        return status switch
+        {
+            "Paid" => "bg-success",
+            "Overdue" => "bg-danger",
+            "Partial" => "bg-info",
+            _ => "bg-warning text-dark"
+        };
+    }
+
+    private void ShowSuccess(string text)
+    {
+        message = text;
+        messageCss = "alert-success";
+    }
+
+    private void ShowError(string text)
+    {
+        message = text;
+        messageCss = "alert-danger";
+    }
+
+    private void ClearMessage()
+    {
+        message = string.Empty;
+    }
+}

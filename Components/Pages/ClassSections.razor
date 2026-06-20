@@ -1,0 +1,354 @@
+@page "/class-sections"
+@using SchoolManagementApp.Models
+@using SchoolManagementApp.Services
+@inject IDataService<AcademicSession> SessionService
+@inject IDataService<ClassSection> ClassSectionService
+
+<div class="container-fluid">
+    <div class="row mb-3">
+        <div class="col">
+            <h3>Class Sections</h3>
+        </div>
+        <div class="col text-end">
+            <button class="btn btn-primary" @onclick="ShowAddForm">
+                <i class="bi bi-plus-circle"></i> Add Class Section
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="ClearError"></button>
+        </div>
+    }
+
+    @if (showForm)
+    {
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5>@(isEditing ? "Edit Class Section" : "Add New Class Section")</h5>
+            </div>
+            <div class="card-body">
+                <EditForm Model="currentClassSection" OnValidSubmit="SaveClassSection">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary />
+
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Session</label>
+                            <InputSelect class="form-select" @bind-Value="currentClassSection.SessionId">
+                                <option value="">Select Session</option>
+                                @foreach (var session in sessions.OrderByDescending(s => s.StartDate))
+                                {
+                                    <option value="@session.Id">@session.Name</option>
+                                }
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Class</label>
+                            <InputText class="form-control" placeholder="Class 1" @bind-Value="currentClassSection.ClassName" />
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Section</label>
+                            <InputText class="form-control" placeholder="A" @bind-Value="currentClassSection.SectionName" />
+                        </div>
+                        <div class="col-md-2 mb-3">
+                            <label class="form-label">Capacity</label>
+                            <InputNumber class="form-control" @bind-Value="currentClassSection.Capacity" />
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <InputCheckbox class="form-check-input" @bind-Value="currentClassSection.IsActive" />
+                            <label class="form-check-label">Active</label>
+                        </div>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-success" disabled="@isBusy">
+                            @(isBusy ? "Saving..." : "Save")
+                        </button>
+                        <button type="button" class="btn btn-secondary" @onclick="CancelForm" disabled="@isBusy">
+                            Cancel
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    }
+
+    <div class="card">
+        <div class="card-body">
+            <div class="row mb-3">
+                <div class="col-md-4">
+                    <select class="form-select" @bind="filterSessionId">
+                        <option value="">All Sessions</option>
+                        @foreach (var session in sessions.OrderByDescending(s => s.StartDate))
+                        {
+                            <option value="@session.Id">@session.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <input type="text" class="form-control" placeholder="Search class or section..." @bind="searchTerm" @bind:event="oninput" />
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th>Session</th>
+                            <th>Class</th>
+                            <th>Section</th>
+                            <th>Capacity</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (FilteredClassSections.Any())
+                        {
+                            @foreach (var item in FilteredClassSections)
+                            {
+                                <tr>
+                                    <td>@item.SessionName</td>
+                                    <td>@item.ClassName</td>
+                                    <td>@item.SectionName</td>
+                                    <td>@item.Capacity</td>
+                                    <td>
+                                        <span class="badge @(item.IsActive ? "bg-success" : "bg-danger")">
+                                            @(item.IsActive ? "Active" : "Inactive")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-warning me-1" @onclick="() => EditClassSection(item)" disabled="@isBusy">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-danger" @onclick="() => DeleteClassSection(item.Id)" disabled="@isBusy">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                        else
+                        {
+                            <tr>
+                                <td colspan="6" class="text-center text-muted">No class sections found.</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<AcademicSession> sessions = new();
+    private List<ClassSection> classSections = new();
+    private ClassSection currentClassSection = new();
+    private bool showForm;
+    private bool isEditing;
+    private bool isBusy;
+    private string errorMessage = string.Empty;
+    private string searchTerm = string.Empty;
+    private string filterSessionId = string.Empty;
+
+    private IEnumerable<ClassSection> FilteredClassSections => classSections
+        .Where(c => string.IsNullOrWhiteSpace(filterSessionId) || c.SessionId == filterSessionId)
+        .Where(c => string.IsNullOrWhiteSpace(searchTerm) ||
+            c.ClassName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+            c.SectionName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+            c.SessionName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+        .OrderByDescending(c => c.SessionName)
+        .ThenBy(c => c.ClassName)
+        .ThenBy(c => c.SectionName);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        try
+        {
+            isBusy = true;
+            ClearError();
+            sessions = await SessionService.GetAllAsync();
+            classSections = await ClassSectionService.GetAllAsync();
+            SyncSessionNames();
+        }
+        catch (Exception ex)
+        {
+            sessions = new List<AcademicSession>();
+            classSections = new List<ClassSection>();
+            errorMessage = $"Failed to load class sections: {ex.Message}";
+            await ShowMessageAsync("Error", errorMessage);
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void SyncSessionNames()
+    {
+        foreach (var classSection in classSections)
+        {
+            var session = sessions.FirstOrDefault(s => s.Id == classSection.SessionId);
+            if (session is not null)
+                classSection.SessionName = session.Name;
+        }
+    }
+
+    private void ShowAddForm()
+    {
+        ClearError();
+        currentClassSection = new ClassSection
+        {
+            SessionId = sessions.FirstOrDefault(s => s.IsActive)?.Id ?? sessions.FirstOrDefault()?.Id ?? string.Empty,
+            IsActive = true,
+            Capacity = 40
+        };
+        isEditing = false;
+        showForm = true;
+    }
+
+    private void EditClassSection(ClassSection item)
+    {
+        ClearError();
+        currentClassSection = new ClassSection
+        {
+            Id = item.Id,
+            SessionId = item.SessionId,
+            SessionName = item.SessionName,
+            ClassName = item.ClassName,
+            SectionName = item.SectionName,
+            Capacity = item.Capacity,
+            IsActive = item.IsActive,
+            CreatedDate = item.CreatedDate
+        };
+        isEditing = true;
+        showForm = true;
+    }
+
+    private async Task SaveClassSection()
+    {
+        try
+        {
+            isBusy = true;
+            ClearError();
+
+            currentClassSection.ClassName = currentClassSection.ClassName.Trim();
+            currentClassSection.SectionName = currentClassSection.SectionName.Trim();
+
+            var session = sessions.FirstOrDefault(s => s.Id == currentClassSection.SessionId);
+            if (session is null)
+            {
+                errorMessage = "Please select a session.";
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(currentClassSection.ClassName))
+            {
+                errorMessage = "Class is required.";
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(currentClassSection.SectionName))
+            {
+                errorMessage = "Section is required.";
+                return;
+            }
+
+            if (classSections.Any(c => c.Id != currentClassSection.Id &&
+                c.SessionId == currentClassSection.SessionId &&
+                c.ClassName.Equals(currentClassSection.ClassName, StringComparison.OrdinalIgnoreCase) &&
+                c.SectionName.Equals(currentClassSection.SectionName, StringComparison.OrdinalIgnoreCase)))
+            {
+                errorMessage = "This class-section already exists in the selected session.";
+                return;
+            }
+
+            currentClassSection.SessionName = session.Name;
+
+            if (isEditing)
+            {
+                await ClassSectionService.UpdateAsync(currentClassSection);
+                await ShowMessageAsync("Success", "Class section updated successfully.");
+            }
+            else
+            {
+                await ClassSectionService.AddAsync(currentClassSection);
+                await ShowMessageAsync("Success", "Class section added successfully.");
+            }
+
+            await LoadData();
+            CancelForm();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to save class section: {ex.Message}";
+            await ShowMessageAsync("Error", errorMessage);
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task DeleteClassSection(string id)
+    {
+        try
+        {
+            var confirmed = await ShowConfirmAsync("Confirm Delete", "Are you sure you want to delete this class section?", "Yes", "No");
+            if (!confirmed)
+                return;
+
+            isBusy = true;
+            await ClassSectionService.DeleteAsync(id);
+            await LoadData();
+            await ShowMessageAsync("Success", "Class section deleted successfully.");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to delete class section: {ex.Message}";
+            await ShowMessageAsync("Error", errorMessage);
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void CancelForm()
+    {
+        showForm = false;
+        isEditing = false;
+        currentClassSection = new ClassSection();
+        ClearError();
+    }
+
+    private void ClearError() => errorMessage = string.Empty;
+
+    private static Page? GetCurrentPage() => Application.Current?.Windows.FirstOrDefault()?.Page;
+
+    private async Task ShowMessageAsync(string title, string message)
+    {
+        var page = GetCurrentPage();
+        if (page is not null)
+            await page.DisplayAlert(title, message, "OK");
+    }
+
+    private async Task<bool> ShowConfirmAsync(string title, string message, string accept, string cancel)
+    {
+        var page = GetCurrentPage();
+        return page is not null && await page.DisplayAlert(title, message, accept, cancel);
+    }
+}

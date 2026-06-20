@@ -1,0 +1,295 @@
+@page "/sessions"
+@using SchoolManagementApp.Models
+@using SchoolManagementApp.Services
+@inject IDataService<AcademicSession> SessionService
+
+<div class="container-fluid">
+    <div class="row mb-3">
+        <div class="col">
+            <h3>Academic Sessions</h3>
+        </div>
+        <div class="col text-end">
+            <button class="btn btn-primary" @onclick="ShowAddForm">
+                <i class="bi bi-plus-circle"></i> Add Session
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" @onclick="ClearError"></button>
+        </div>
+    }
+
+    @if (showForm)
+    {
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5>@(isEditing ? "Edit Session" : "Add New Session")</h5>
+            </div>
+            <div class="card-body">
+                <EditForm Model="currentSession" OnValidSubmit="SaveSession">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary />
+
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Session Name</label>
+                            <InputText class="form-control" placeholder="2025-2026" @bind-Value="currentSession.Name" />
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Start Date</label>
+                            <InputDate class="form-control" @bind-Value="currentSession.StartDate" />
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">End Date</label>
+                            <InputDate class="form-control" @bind-Value="currentSession.EndDate" />
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <InputCheckbox class="form-check-input" @bind-Value="currentSession.IsActive" />
+                            <label class="form-check-label">Active</label>
+                        </div>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-success" disabled="@isBusy">
+                            @(isBusy ? "Saving..." : "Save")
+                        </button>
+                        <button type="button" class="btn btn-secondary" @onclick="CancelForm" disabled="@isBusy">
+                            Cancel
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    }
+
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th>Session</th>
+                            <th>Start Date</th>
+                            <th>End Date</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (sessions.Any())
+                        {
+                            @foreach (var session in sessions.OrderByDescending(s => s.StartDate))
+                            {
+                                <tr>
+                                    <td><strong>@session.Name</strong></td>
+                                    <td>@session.StartDate.ToString("dd MMM yyyy")</td>
+                                    <td>@session.EndDate.ToString("dd MMM yyyy")</td>
+                                    <td>
+                                        <span class="badge @(session.IsActive ? "bg-success" : "bg-danger")">
+                                            @(session.IsActive ? "Active" : "Inactive")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-warning me-1" @onclick="() => EditSession(session)" disabled="@isBusy">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-danger" @onclick="() => DeleteSession(session.Id)" disabled="@isBusy">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                        else
+                        {
+                            <tr>
+                                <td colspan="5" class="text-center text-muted">No sessions found.</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<AcademicSession> sessions = new();
+    private AcademicSession currentSession = new();
+    private bool showForm;
+    private bool isEditing;
+    private bool isBusy;
+    private string errorMessage = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSessions();
+    }
+
+    private async Task LoadSessions()
+    {
+        try
+        {
+            isBusy = true;
+            ClearError();
+            sessions = await SessionService.GetAllAsync();
+        }
+        catch (Exception ex)
+        {
+            sessions = new List<AcademicSession>();
+            errorMessage = $"Failed to load sessions: {ex.Message}";
+            await ShowMessageAsync("Error", errorMessage);
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void ShowAddForm()
+    {
+        ClearError();
+        var year = DateTime.Today.Year;
+        currentSession = new AcademicSession
+        {
+            Name = $"{year}-{year + 1}",
+            StartDate = new DateTime(year, 4, 1),
+            EndDate = new DateTime(year + 1, 3, 31),
+            IsActive = true
+        };
+        isEditing = false;
+        showForm = true;
+    }
+
+    private void EditSession(AcademicSession session)
+    {
+        ClearError();
+        currentSession = new AcademicSession
+        {
+            Id = session.Id,
+            Name = session.Name,
+            StartDate = session.StartDate,
+            EndDate = session.EndDate,
+            IsActive = session.IsActive,
+            CreatedDate = session.CreatedDate
+        };
+        isEditing = true;
+        showForm = true;
+    }
+
+    private async Task SaveSession()
+    {
+        try
+        {
+            isBusy = true;
+            ClearError();
+
+            currentSession.Name = currentSession.Name.Trim();
+            if (string.IsNullOrWhiteSpace(currentSession.Name))
+            {
+                errorMessage = "Session name is required.";
+                return;
+            }
+
+            if (currentSession.EndDate < currentSession.StartDate)
+            {
+                errorMessage = "End date cannot be before start date.";
+                return;
+            }
+
+            if (sessions.Any(s => s.Id != currentSession.Id && s.Name.Equals(currentSession.Name, StringComparison.OrdinalIgnoreCase)))
+            {
+                errorMessage = "This session already exists.";
+                return;
+            }
+
+            if (currentSession.IsActive)
+            {
+                foreach (var session in sessions.Where(s => s.Id != currentSession.Id && s.IsActive))
+                {
+                    session.IsActive = false;
+                    await SessionService.UpdateAsync(session);
+                }
+            }
+
+            if (isEditing)
+            {
+                await SessionService.UpdateAsync(currentSession);
+                await ShowMessageAsync("Success", "Session updated successfully.");
+            }
+            else
+            {
+                await SessionService.AddAsync(currentSession);
+                await ShowMessageAsync("Success", "Session added successfully.");
+            }
+
+            await LoadSessions();
+            CancelForm();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to save session: {ex.Message}";
+            await ShowMessageAsync("Error", errorMessage);
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task DeleteSession(string id)
+    {
+        try
+        {
+            var confirmed = await ShowConfirmAsync("Confirm Delete", "Are you sure you want to delete this session?", "Yes", "No");
+            if (!confirmed)
+                return;
+
+            isBusy = true;
+            await SessionService.DeleteAsync(id);
+            await LoadSessions();
+            await ShowMessageAsync("Success", "Session deleted successfully.");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to delete session: {ex.Message}";
+            await ShowMessageAsync("Error", errorMessage);
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void CancelForm()
+    {
+        showForm = false;
+        isEditing = false;
+        currentSession = new AcademicSession();
+        ClearError();
+    }
+
+    private void ClearError() => errorMessage = string.Empty;
+
+    private static Page? GetCurrentPage() => Application.Current?.Windows.FirstOrDefault()?.Page;
+
+    private async Task ShowMessageAsync(string title, string message)
+    {
+        var page = GetCurrentPage();
+        if (page is not null)
+            await page.DisplayAlert(title, message, "OK");
+    }
+
+    private async Task<bool> ShowConfirmAsync(string title, string message, string accept, string cancel)
+    {
+        var page = GetCurrentPage();
+        return page is not null && await page.DisplayAlert(title, message, accept, cancel);
+    }
+}
