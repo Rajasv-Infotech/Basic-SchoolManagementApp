@@ -4,7 +4,6 @@
 @inject IDataService<Student> StudentService
 @inject IDataService<FeeRecord> FeeService
 @inject IDataService<Teacher> TeacherService
-@inject IDataService<Attendance> AttendanceService
 
 <div class="container-fluid">
     <h3 class="mb-4"><i class="bi bi-file-earmark-bar-graph"></i> Reports & Analytics</h3>
@@ -18,7 +17,6 @@
                     <select class="form-select" @bind="selectedReportType">
                         <option value="StudentReport">Student Report</option>
                         <option value="FeeReport">Fee Report</option>
-                        <option value="AttendanceReport">Attendance Report</option>
                         <option value="TeacherReport">Teacher Report</option>
                     </select>
                 </div>
@@ -101,7 +99,7 @@
                                 <td>@classGroup.Count(s => s.IsActive)</td>
                                 <td>
                                     <div class="progress">
-                                        <div class="progress-bar bg-success" 
+                                        <div class="progress-bar bg-success"
                                              style="width: @GetPercentage(classGroup.Count(), students.Count)%">
                                             @GetPercentage(classGroup.Count(), students.Count).ToString("F1")%
                                         </div>
@@ -174,7 +172,7 @@
                             var total = feeGroup.Sum(f => f.Amount);
                             var collected = feeGroup.Where(f => f.Status == "Paid").Sum(f => f.Amount);
                             var pending = feeGroup.Where(f => f.Status != "Paid").Sum(f => f.Amount);
-                            
+
                             <tr>
                                 <td><strong>@feeGroup.Key</strong></td>
                                 <td>₹@total.ToString("N2")</td>
@@ -182,7 +180,7 @@
                                 <td class="text-warning">₹@pending.ToString("N2")</td>
                                 <td>
                                     <div class="progress">
-                                        <div class="progress-bar bg-success" 
+                                        <div class="progress-bar bg-success"
                                              style="width: @GetPercentage(collected, total)%">
                                             @GetPercentage(collected, total).ToString("F1")%
                                         </div>
@@ -209,77 +207,6 @@
                                 <td>@monthGroup.Month</td>
                                 <td class="text-success">₹@monthGroup.Amount.ToString("N2")</td>
                                 <td>@monthGroup.Count</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    }
-
-    @if (selectedReportType == "AttendanceReport")
-    {
-        <div class="card">
-            <div class="card-header bg-info text-white">
-                <h5><i class="bi bi-calendar-check"></i> Attendance Report</h5>
-            </div>
-            <div class="card-body">
-                <div class="row mb-3">
-                    <div class="col-md-4">
-                        <div class="card bg-success text-white">
-                            <div class="card-body text-center">
-                                <h6>Average Attendance</h6>
-                                <h3>@GetAverageAttendance()%</h3>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="card bg-primary text-white">
-                            <div class="card-body text-center">
-                                <h6>Total Records</h6>
-                                <h3>@attendanceRecords.Count</h3>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="card bg-warning text-white">
-                            <div class="card-body text-center">
-                                <h6>Days Covered</h6>
-                                <h3>@GetUniqueDaysCount()</h3>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <h6>Student-wise Attendance</h6>
-                <table class="table table-bordered">
-                    <thead>
-                        <tr>
-                            <th>Student Name</th>
-                            <th>Total Days</th>
-                            <th>Present</th>
-                            <th>Absent</th>
-                            <th>Late</th>
-                            <th>Attendance %</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var studentAtt in GetStudentWiseAttendance())
-                        {
-                            <tr>
-                                <td><strong>@studentAtt.StudentName</strong></td>
-                                <td>@studentAtt.TotalDays</td>
-                                <td class="text-success">@studentAtt.Present</td>
-                                <td class="text-danger">@studentAtt.Absent</td>
-                                <td class="text-warning">@studentAtt.Late</td>
-                                <td>
-                                    <div class="progress">
-                                        <div class="progress-bar @GetAttendanceColorClass(studentAtt.Percentage)" 
-                                             style="width: @studentAtt.Percentage%">
-                                            @studentAtt.Percentage.ToString("F1")%
-                                        </div>
-                                    </div>
-                                </td>
                             </tr>
                         }
                     </tbody>
@@ -351,8 +278,7 @@
     private List<Student> students = new();
     private List<FeeRecord> feeRecords = new();
     private List<Teacher> teachers = new();
-    private List<Attendance> attendanceRecords = new();
-    
+
     private string selectedReportType = "StudentReport";
     private DateTime fromDate = DateTime.Today.AddMonths(-1);
     private DateTime toDate = DateTime.Today;
@@ -367,7 +293,6 @@
         students = await StudentService.GetAllAsync();
         feeRecords = await FeeService.GetAllAsync();
         teachers = await TeacherService.GetAllAsync();
-        attendanceRecords = await AttendanceService.GetAllAsync();
     }
 
     private async Task GenerateReport()
@@ -394,24 +319,36 @@
     // Fee Report Methods
     private decimal GetTotalCollected()
     {
-        return feeRecords.Where(f => f.Status == "Paid" && 
-            f.PaymentDate >= fromDate && f.PaymentDate <= toDate).Sum(f => f.Amount);
+        return feeRecords
+            .Where(f => f.Status == "Paid" &&
+                        f.PaymentDate >= fromDate &&
+                        f.PaymentDate <= toDate)
+            .Sum(f => f.Amount);
     }
 
     private decimal GetTotalPending()
     {
-        return feeRecords.Where(f => f.Status == "Pending").Sum(f => f.Amount);
+        return feeRecords
+            .Where(f => f.Status == "Pending")
+            .Sum(f => f.Amount);
     }
 
     private decimal GetTotalOverdue()
     {
-        return feeRecords.Where(f => f.Status == "Overdue").Sum(f => f.Amount);
+        return feeRecords
+            .Where(f => f.Status == "Overdue")
+            .Sum(f => f.Amount);
     }
 
     private double GetCollectionPercentage()
     {
         var total = feeRecords.Sum(f => f.Amount);
-        if (total == 0) return 0;
+
+        if (total == 0)
+        {
+            return 0;
+        }
+
         return Math.Round((double)(GetTotalCollected() / total * 100), 1);
     }
 
@@ -438,37 +375,6 @@
             .ToList();
     }
 
-    // Attendance Report Methods
-    private double GetAverageAttendance()
-    {
-        var total = attendanceRecords.Count;
-        if (total == 0) return 0;
-        var present = attendanceRecords.Count(a => a.Status == "Present");
-        return Math.Round((double)present / total * 100, 1);
-    }
-
-    private int GetUniqueDaysCount()
-    {
-        return attendanceRecords.Select(a => a.Date.Date).Distinct().Count();
-    }
-
-    private List<StudentAttendanceSummary> GetStudentWiseAttendance()
-    {
-        return attendanceRecords
-            .GroupBy(a => a.StudentName)
-            .Select(g => new StudentAttendanceSummary
-            {
-                StudentName = g.Key,
-                TotalDays = g.Count(),
-                Present = g.Count(a => a.Status == "Present"),
-                Absent = g.Count(a => a.Status == "Absent"),
-                Late = g.Count(a => a.Status == "Late"),
-                Percentage = g.Count() > 0 ? Math.Round((double)g.Count(a => a.Status == "Present") / g.Count() * 100, 1) : 0
-            })
-            .OrderByDescending(s => s.Percentage)
-            .ToList();
-    }
-
     // Teacher Report Methods
     private IEnumerable<IGrouping<string, Teacher>> GetSubjectWiseData()
     {
@@ -480,22 +386,22 @@
     // Helper Methods
     private double GetPercentage(int value, int total)
     {
-        if (total == 0) return 0;
+        if (total == 0)
+        {
+            return 0;
+        }
+
         return Math.Round((double)value / total * 100, 1);
     }
 
     private double GetPercentage(decimal value, decimal total)
     {
-        if (total == 0) return 0;
-        return Math.Round((double)(value / total * 100), 1);
-    }
+        if (total == 0)
+        {
+            return 0;
+        }
 
-    private string GetAttendanceColorClass(double percentage)
-    {
-        if (percentage >= 90) return "bg-success";
-        if (percentage >= 75) return "bg-info";
-        if (percentage >= 60) return "bg-warning";
-        return "bg-danger";
+        return Math.Round((double)(value / total * 100), 1);
     }
 
     // Helper Classes
@@ -504,15 +410,5 @@
         public string Month { get; set; } = "";
         public decimal Amount { get; set; }
         public int Count { get; set; }
-    }
-
-    private class StudentAttendanceSummary
-    {
-        public string StudentName { get; set; } = "";
-        public int TotalDays { get; set; }
-        public int Present { get; set; }
-        public int Absent { get; set; }
-        public int Late { get; set; }
-        public double Percentage { get; set; }
     }
 }
